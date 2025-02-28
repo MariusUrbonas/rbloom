@@ -83,6 +83,12 @@ impl Bloom {
         (len / (self.k as f64) * (1.0 - (bits_set) / len).ln()).abs()
     }
 
+    #[getter]
+    fn bitline(&self, py: Python) -> PyResult<Py<PyBitLine>> {
+        // Return a new PyBitLine that wraps a clone of the internal BitLine.
+        Py::new(py, PyBitLine { inner: self.filter.clone() })
+    }
+
     #[pyo3(signature = (o, /))]
     fn add(&mut self, o: &Bound<'_, PyAny>) -> PyResult<()> {
         let hash = hash(o, &self.hash_func)?;
@@ -574,6 +580,59 @@ mod bitline {
     }
 }
 
+#[pyclass(module = "rbloom")]
+pub struct PyBitLine {
+    inner: bitline::BitLine,
+}
+
+#[pymethods]
+impl PyBitLine {
+    /// Create a new BitLine with the given size in bits.
+    #[new]
+    fn new(size_in_bits: u64) -> PyResult<Self> {
+        Ok(PyBitLine {
+            inner: bitline::BitLine::new(size_in_bits)?,
+        })
+    }
+
+    /// Returns the underlying bytes of the BitLine.
+    #[getter]
+    fn bits(&self) -> &[u8] {
+        self.inner.bits()
+    }
+
+    /// Get the total number of bits in the BitLine.
+    #[getter]
+    fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
+    /// Get the value of the bit at the specified index.
+    fn get(&self, index: u64) -> PyResult<bool> {
+        if index >= self.inner.len() {
+            return Err(PyValueError::new_err("Index out of bounds"));
+        }
+        Ok(self.inner.get(index))
+    }
+
+    /// Set the bit at the specified index.
+    fn set(&mut self, index: u64) -> PyResult<()> {
+        if index >= self.inner.len() {
+            return Err(PyValueError::new_err("Index out of bounds"));
+        }
+        self.inner.set(index);
+        Ok(())
+    }
+
+    fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("BitLine(len: {} bits)", self.inner.len()))
+    }
+}
+
 /// This implements a linear congruential generator that is
 /// used to distribute entropy from the hash over multiple ints.
 mod lcg {
@@ -652,5 +711,6 @@ fn builtin_hash_func(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
 #[pymodule]
 fn rbloom(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Bloom>()?;
+    m.add_class::<PyBitLine>()?;
     Ok(())
 }
